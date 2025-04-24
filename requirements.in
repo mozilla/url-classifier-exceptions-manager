@@ -1,0 +1,3 @@
+kinto-http==11.8.0
+asyncio
+argparse

@@ -1,2 +1,2 @@
-# url-classifier-excpetions-manager
-A tool to manage UrlClassifier excpetions on the RemoteSettings server.
+# url-classifier-exceptions-manager
+A tool to manage UrlClassifier exceptions on the RemoteSettings server.

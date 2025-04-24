@@ -1,0 +1,19 @@
+[project]
+dynamic = ["version", "dependencies", "readme"]
+name = "url-classifier-exceptions-manager"
+description = "This is a tool to manage UrlClassifier exceptions on the RemoteSettings server."
+license = {file = "LICENSE"}
+maintainers = [
+  {name = "Tim Huang", email = "tihuang@mozilla.com"}
+]
+
+[build-system]
+requires = ["setuptools >= 59.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+uce-manager = "url_classifier_exceptions_manager.__main__:main"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.in"] }
+readme = {file = ["README.md"]}
