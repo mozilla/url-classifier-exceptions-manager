@@ -109,6 +109,16 @@ async def get_exceptions(server_location, auth_token):
     remote_exceptions = [parse_rs_record(r) for r in records]
     return remote_exceptions
 
+def print_exception(exception):
+    """
+    Print a single exception in JSON format.
+    
+    Args:
+        exception: The exception record to print
+    """
+    print(json.dumps(exception, indent=2, sort_keys=True))
+    print("-" * 50)
+
 async def list_exceptions(server_location, auth_token, json_output=False):
     """
     List all exceptions from the RemoteSettings server.
@@ -124,7 +134,8 @@ async def list_exceptions(server_location, auth_token, json_output=False):
     else:
         print("\nURL Classifier Exceptions:")
         print("=" * 50)
-        print(json.dumps(remote_exceptions, indent=2, sort_keys=True))
+        for exception in remote_exceptions:
+            print_exception(exception)
         print("=" * 50)
         print(f"Total exceptions: {len(remote_exceptions)}")
 
@@ -177,8 +188,24 @@ async def request_review(async_client, is_dev):
     else:
         print("\n*** Error while fetching collection status ***\n")
 
+def confirm_action(action_description, force=False):
+    """
+    Prompt the user for confirmation before proceeding with an action.
+    
+    Args:
+        action_description: A description of the action to be performed
+        force: If True, skip confirmation and proceed automatically
+        
+    Returns:
+        Boolean indicating whether the action should proceed
+    """
+    if force:
+        return True
+        
+    confirmation = input(f"\nAre you sure you want to {action_description}? (y/n): ")
+    return confirmation.lower() in ('y', 'yes')
 
-async def add_exceptions(server_location, auth_token, json_file, is_dev):
+async def add_exceptions(server_location, auth_token, json_file, is_dev, force=False):
     """
     Add new exceptions or update existing ones from a JSON file.
     
@@ -187,6 +214,7 @@ async def add_exceptions(server_location, auth_token, json_file, is_dev):
         auth_token: Authentication token for the server
         json_file: Path to the JSON file containing exceptions
         is_dev: Boolean indicating if the server is a development server
+        force: If True, skip confirmation prompts
     """
     try:
         with open(json_file, 'r') as f:
@@ -227,13 +255,32 @@ async def add_exceptions(server_location, auth_token, json_file, is_dev):
         print(f"\nAll exceptions in the file already exist and are up-to-date.\n")
         return
 
+    # Display exceptions that will be added
+    if to_create:
+        print("\nExceptions to be added:")
+        print("=" * 50)
+        for exception in to_create:
+            print_exception(exception)
+
+    # Display exceptions that will be updated
+    if to_update:
+        print("\nExceptions to be updated:")
+        print("=" * 50)
+        for exception in to_update:
+            print_exception(exception)
+
+    action_description = f"add new exceptions and update existing ones"
+    if not confirm_action(action_description, force):
+        print("Operation cancelled.")
+        return
+
     await update_records(async_client, to_update)
     await update_records(async_client, to_create)
 
     await request_review(async_client, is_dev)
     print(f"\nSummary: {len(to_create)} to create, {len(to_update)} to update")
 
-async def remove_exceptions(server_location, auth_token, exception_ids=None, remove_all=False, is_dev=False):
+async def remove_exceptions(server_location, auth_token, exception_ids=None, remove_all=False, is_dev=False, force=False):
     """
     Remove exceptions from the RemoteSettings server.
     
@@ -243,11 +290,17 @@ async def remove_exceptions(server_location, auth_token, exception_ids=None, rem
         exception_ids: List of exception IDs to remove (optional)
         remove_all: If True, remove all exceptions
         is_dev: Boolean indicating if the server is a development server
+        force: If True, skip confirmation prompts
     """
     async_client = get_async_client(server_location, auth_token)
 
     if remove_all:
         # Get all records and delete them
+        action_description = "remove ALL exceptions from the server"
+        if not confirm_action(action_description, force):
+            print("Operation cancelled.")
+            return
+            
         try:
             await async_client.delete_records()
         except KintoException as e:
@@ -256,6 +309,11 @@ async def remove_exceptions(server_location, auth_token, exception_ids=None, rem
 
         print(f"Successfully removed all exceptions")
     else:
+        action_description = f"remove {len(exception_ids)} exception(s)"
+        if not confirm_action(action_description, force):
+            print("Operation cancelled.")
+            return
+            
         try:
             for exception_id in exception_ids:
                 await async_client.delete_record(id=exception_id)
@@ -305,6 +363,10 @@ async def execute():
         "--auth",
         required=True,
         help="Authentication token for the RemoteSettings server")
+    add_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompts")
 
     # Remove command
     remove_parser = subparsers.add_parser('remove', help='Remove specific exceptions')
@@ -326,6 +388,10 @@ async def execute():
         "--auth",
         required=True,
         help="Authentication token for the RemoteSettings server")
+    remove_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompts")
 
     args = parser.parse_args()
     if not args.command:
@@ -338,14 +404,14 @@ async def execute():
     if args.command == 'list':
         await list_exceptions(server_location, auth_token, args.json)
     elif args.command == 'add':
-        await add_exceptions(server_location, auth_token, args.json_file, args.server == "dev")
+        await add_exceptions(server_location, auth_token, args.json_file, args.server == "dev", args.force)
     elif args.command == 'remove':
         if args.all:
-            await remove_exceptions(server_location, auth_token, remove_all=True, is_dev=args.server == "dev")
+            await remove_exceptions(server_location, auth_token, remove_all=True, is_dev=args.server == "dev", force=args.force)
         elif not args.exception_ids:
             remove_parser.error("Either --all or at least one exception_id must be provided")
         else:
-            await remove_exceptions(server_location, auth_token, args.exception_ids, is_dev=args.server == "dev")
+            await remove_exceptions(server_location, auth_token, args.exception_ids, is_dev=args.server == "dev", force=args.force)
 
 def main():
     asyncio.run(execute())
