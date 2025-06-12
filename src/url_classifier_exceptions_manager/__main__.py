@@ -71,7 +71,10 @@ def parse_rs_record(record):
         
     if "filterContentBlockingCategories" in record:
         parsed_record["filterContentBlockingCategories"] = record["filterContentBlockingCategories"]
-    
+
+    if "filter_expression" in record:
+        parsed_record["filter_expression"] = record["filter_expression"]
+
     return parsed_record
 
 def get_async_client(server_location, auth_token):
@@ -112,7 +115,7 @@ async def get_exceptions(server_location, auth_token):
 def print_exception(exception):
     """
     Print a single exception in JSON format.
-    
+
     Args:
         exception: The exception record to print
     """
@@ -234,8 +237,13 @@ async def add_exceptions(server_location, auth_token, json_file, is_dev, force=F
         matching_remote = None
         # Search through existing remote exceptions
         for remote_exception in remote_exceptions:
-            # Match exceptions based on URL pattern
-            if (exception["urlPattern"] == remote_exception["urlPattern"] and
+            # Match exceptions. If the id is the same, it's a match. Otherwise,
+            # we check urlPattern, bugId, and classifierFeatures to determine if
+            # it's a match.
+            if "id" in exception and exception["id"] == remote_exception["id"]:
+                matching_remote = remote_exception
+                break
+            elif (exception["urlPattern"] == remote_exception["urlPattern"] and
                 exception["bugId"] == remote_exception["bugId"] and
                 set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"])):  # Order-independent comparison
                 matching_remote = remote_exception
