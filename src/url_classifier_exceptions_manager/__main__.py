@@ -55,9 +55,14 @@ def parse_rs_record(record):
         Optional fields are only included if they exist in the source record.
     """
     # Start with the required fields
+    bugIds = []
+    if "bugIds" in record:
+        bugIds = record["bugIds"]
+    elif "bugId" in record:
+        bugIds = [record["bugId"]]
     parsed_record = {
         "id": record["id"],
-        "bugId": record["bugId"],
+        "bugIds": bugIds,
         "urlPattern": record["urlPattern"],
         "classifierFeatures": record["classifierFeatures"],
     }
@@ -155,6 +160,9 @@ async def update_records(async_client, records):
     """
     try:
         for data in records:
+            # Remove bugId if present, always use bugIds
+            if "bugId" in data:
+                del data["bugId"]
             rec_resp = await async_client.update_record(id=data['id'],
                 data=data)
             if not rec_resp:
@@ -238,14 +246,16 @@ async def add_exceptions(server_location, auth_token, json_file, is_dev, force=F
         # Search through existing remote exceptions
         for remote_exception in remote_exceptions:
             # Match exceptions. If the id is the same, it's a match. Otherwise,
-            # we check urlPattern, bugId, and classifierFeatures to determine if
+            # we check urlPattern, bugIds, and classifierFeatures to determine if
             # it's a match.
             if "id" in exception and exception["id"] == remote_exception["id"]:
                 matching_remote = remote_exception
                 break
-            elif (exception["urlPattern"] == remote_exception["urlPattern"] and
-                exception["bugId"] == remote_exception["bugId"] and
-                set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"])):  # Order-independent comparison
+            elif (
+                exception["urlPattern"] == remote_exception["urlPattern"] and
+                set(exception["bugIds"]) == set(remote_exception["bugIds"]) and
+                set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"])
+            ):
                 matching_remote = remote_exception
                 break
 
