@@ -65,6 +65,7 @@ def parse_rs_record(record):
         "bugIds": bugIds,
         "urlPattern": record["urlPattern"],
         "classifierFeatures": record["classifierFeatures"],
+        "category": record.get("category", "convenience"),
     }
     
     # Add optional fields only if they exist in the source record
@@ -163,6 +164,9 @@ async def update_records(async_client, records):
             # Remove bugId if present, always use bugIds
             if "bugId" in data:
                 del data["bugId"]
+            # Ensure category is present
+            if "category" not in data:
+                data["category"] = "convenience"
             rec_resp = await async_client.update_record(id=data['id'],
                 data=data)
             if not rec_resp:

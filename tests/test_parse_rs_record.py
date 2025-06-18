@@ -12,11 +12,11 @@ def test_parse_rs_record():
         "classifierFeatures": ["tracking-protection"],
         "topLevelUrlPattern": "*://example.net/*",
         "isPrivateBrowsingOnly": True,
-        "filterContentBlockingCategories": ["standard"]
+        "filterContentBlockingCategories": ["standard"],
     }
 
     parsed = parse_rs_record(test_record)
-    
+
     assert parsed["id"] == "2a50e5fa-4762-4a3b-a5d0-53a7e9bbe91a"
     assert parsed["bugIds"] == ["123456"]
     assert parsed["urlPattern"] == "*://example.com/*"
@@ -24,23 +24,26 @@ def test_parse_rs_record():
     assert parsed["topLevelUrlPattern"] == "*://example.net/*"
     assert parsed["isPrivateBrowsingOnly"] is True
     assert parsed["filterContentBlockingCategories"] == ["standard"]
+    assert parsed["category"] == "convenience"
 
 def test_parse_rs_record_bugIds():
-    """Test parsing of RemoteSettings records with new bugIds field."""
+    """Test parsing of RemoteSettings records with new bugIds field and explicit category."""
     test_record = {
         "id": "2a50e5fa-4762-4a3b-a5d0-53a7e9bbe91a",
         "bugIds": ["123456", "654321"],
         "urlPattern": "*://example.com/*",
-        "classifierFeatures": ["tracking-protection"]
+        "classifierFeatures": ["tracking-protection"],
+        "category": "convenience"
     }
     parsed = parse_rs_record(test_record)
     assert parsed["id"] == "2a50e5fa-4762-4a3b-a5d0-53a7e9bbe91a"
     assert parsed["bugIds"] == ["123456", "654321"]
     assert parsed["urlPattern"] ==  "*://example.com/*"
     assert parsed["classifierFeatures"] == ["tracking-protection"]
+    assert parsed["category"] == "convenience"
 
 def test_parse_rs_record_minimal():
-    """Test parsing of RemoteSettings records with only required fields (old format)."""
+    """Test parsing of RemoteSettings records with only required fields (old format, no category)."""
     test_record = {
         "id": "2a50e5fa-4762-4a3b-a5d0-53a7e9bbe91a",
         "bugId": "123456",
@@ -56,4 +59,5 @@ def test_parse_rs_record_minimal():
     assert parsed["classifierFeatures"] == ["tracking-protection"]
     assert "topLevelUrlPattern" not in parsed
     assert "isPrivateBrowsingOnly" not in parsed
-    assert "filterContentBlockingCategories" not in parsed 
+    assert "filterContentBlockingCategories" not in parsed
+    assert parsed["category"] == "convenience"
