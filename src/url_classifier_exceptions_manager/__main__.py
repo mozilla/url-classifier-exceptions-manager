@@ -258,7 +258,8 @@ async def add_exceptions(server_location, auth_token, json_file, is_dev, force=F
             elif (
                 exception["urlPattern"] == remote_exception["urlPattern"] and
                 set(exception["bugIds"]) == set(remote_exception["bugIds"]) and
-                set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"])
+                set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"]) and
+                set(exception["filterContentBlockingCategories"]) == set(remote_exception["filterContentBlockingCategories"])
             ):
                 matching_remote = remote_exception
                 break
