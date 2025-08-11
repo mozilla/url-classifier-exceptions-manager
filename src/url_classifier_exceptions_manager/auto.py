@@ -1,0 +1,207 @@
+import json
+
+from urllib.parse import urlparse
+
+from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator
+from .remoteSettings import list_exceptions, add_exceptions
+from .exceptionEntry import ExceptionEntry
+
+from .constants import (
+    PROD_SERVER_LOCATION,
+)
+
+def is_exempted_by_global_exceptions(host, exceptions):
+    for e in exceptions:
+        if e.isGlobalException() is False:
+            continue
+
+        if e.isBlockingEntry() is False:
+            continue
+
+        if e.obj["urlPattern"] == f"*://{host}/*":
+            print(f"Warning: {host} is exempted by global exception {e.obj}")
+            return True
+
+    return False
+
+def is_already_in_exception(bug_id, exceptions):
+    for e in exceptions:
+        if str(bug_id) in e.obj["bugIds"]:
+            return True
+    return False
+
+async def auto_generate_exceptions(server_location, auth_token, bz_cache = None, rs_records = None, output_exception_file = None, out_affected_bugs_file = None):
+    if bz_cache:
+        with open(bz_cache, "r") as f:
+            bugs_data = json.load(f)
+    else:
+        bugs_data = fetch_bug_data("Web Compatibility", "Privacy: Site Reports")
+
+    if rs_records:
+        with open(rs_records, "r") as f:
+            rs_records = json.load(f)
+    else:
+        rs_records = await list_exceptions(server_location, auth_token)
+
+    # Create a list of ExceptionEntry objects from the RemoteSettings records
+    current_exceptions = []
+    for record in rs_records:
+        entry = ExceptionEntry()
+        entry.fromRSRecord(record)
+        current_exceptions.append(entry)
+
+    affected_bugs = []
+    new_exceptions = []
+
+    for entry in sorted(bugs_data["bugs"], key=lambda x: x["id"], reverse=True):
+        bug_id = entry["id"]
+        url = entry["url"]
+        whiteboard = entry["whiteboard"]
+        user_story = entry["cf_user_story"]
+
+        # Skip if the bug is not diagnosed by the privacy team
+        if "[privacy-team:diagnosed]" not in whiteboard:
+            continue
+
+        # Skip if the bug has the status "REOPENED"
+        if entry["status"] == "REOPENED":
+            continue
+
+        # Skip if the entries are already in the RemoteSettings server.
+        if is_already_in_exception(bug_id, current_exceptions):
+            continue
+
+        url = entry["url"]
+        if not url or not url.startswith("http"):
+            print(f"Warning: Ignoring Bug {bug_id}, bad URL? {url}")
+            continue
+
+        url = f"*://{urlparse(url).netloc}/*"
+
+        # Get the category from the whiteboard tag
+        category = "convenience"
+        if "[exception-baseline]" in whiteboard:
+            category = "baseline"
+        elif "[exception-convenience]" in whiteboard:
+            category = "convenience"
+
+        classifierFeatures = ["tracking-protection", "emailtracking-protection"]
+        domains_to_fix = []
+
+        # Parse the user story to find the necessary fix domains and classifier
+        # features
+        for (idx,line) in enumerate(user_story.splitlines()):
+            if line.startswith("trackers-blocked:"):
+                (_, hosts) = line.split(":", 2)
+                domains_to_fix = hosts.split(",")
+
+                # Filter out domains that are exempted by global exceptions
+                domains_to_fix = [host for host in domains_to_fix if not is_exempted_by_global_exceptions(host, current_exceptions)]
+
+                if not domains_to_fix:
+                    print(f"Warning: Ignoring Bug {bug_id}, covered by global exceptions?")
+                    continue
+
+                domains_to_fix = [f"*://{domain.strip()}/*" for domain in domains_to_fix]
+
+            if line.startswith("classifier-features:"):
+                (_, features) = line.split(":", 2)
+                classifierFeatures = features.split(",")
+
+        if not domains_to_fix:
+            continue
+
+        affected_bugs.append(bug_id)
+        for domain in domains_to_fix:
+            entryAfter142 = ExceptionEntry()
+            entryAfter142.fromArguments(
+                bugIds=[str(bug_id)],
+                urlPattern=domain,
+                classifierFeatures=classifierFeatures,
+                category=category,
+                topLevelUrlPattern=url,
+                filter_expression='env.version|versionCompare("142.0a1") >= 0'
+            )
+            new_exceptions.append(entryAfter142)
+            entryBefore142 = ExceptionEntry()
+            entryBefore142.fromArguments(
+                bugIds=[str(bug_id)],
+                urlPattern=domain,
+                classifierFeatures=classifierFeatures,
+                category="convenience",
+                topLevelUrlPattern=url,
+                isPrivateBrowsingOnly=True,
+                filterContentBlockingCategories=["standard"],
+                filter_expression='env.version|versionCompare("142.0a1") < 0'
+            )
+            new_exceptions.append(entryBefore142)
+
+    new_exceptions_objects = [exc.toObject() for exc in new_exceptions]
+
+    if output_exception_file:
+        with open(output_exception_file, "w") as f:
+            json.dump(new_exceptions_objects, f, indent=2)
+    else:
+        print(json.dumps(new_exceptions_objects, indent=2))
+
+    if out_affected_bugs_file:
+        with open(out_affected_bugs_file, "w") as f:
+            for bug_id in affected_bugs:
+                f.write(str(bug_id) + "\n")
+    else:
+        print(affected_bugs)
+
+    await add_exceptions(
+        server_location, auth_token, new_exceptions_objects,
+        is_dev=server_location == "dev", force=False)
+
+async def auto_close_bugs(auth_token, bug_list, dry_run=False):
+    # First, fetch the RemoteSettings records. We need them to check if the
+    # Record for the bug is already in the RemoteSettings server.
+    # We only check against the prod server for closing bugs.
+    rs_records = await list_exceptions(PROD_SERVER_LOCATION, auth_token)
+
+    for bug_id in bug_list:
+        # Find all entries that contain this bug_id
+        matching_entries = []
+        for record in rs_records:
+            entry = ExceptionEntry()
+            entry.fromRSRecord(record)
+            # Remove the id field from the entry object. This field is not
+            # necessary for the message body.
+            if "id" in entry.obj:
+                del entry.obj["id"]
+            # Check if the bug_id is in the entry.bugIds list.
+            if bug_id in entry.obj["bugIds"]:
+                matching_entries.append(entry)
+
+        if not matching_entries:
+            continue
+
+        # Construct the message to close the bug.
+        message = f"This message is auto-generated.\n\n"
+        message += f"Enhanced Tracking Protection (ETP) exceptions have been deployed to address this issue.\n"
+        message += f"We have deployed the following exceptions:\n"
+        message += f"```\n"
+        for entry in matching_entries:
+            message += f"{entry.toJSON()}\n"
+        message += f"```\n"
+
+        if dry_run:
+            print(f"---- Closing Bug {bug_id} ----")
+            print(message)
+            print(f"------------------------------")
+        else:
+            close_bug(bug_id, "FIXED", message)
+
+async def auto_ni_bugs(bug_list, dry_run=False):
+    for bug_id in bug_list:
+        message = f"This message is auto-generated.\n\n"
+        message += f"Would you please verify if the issue is resolved by the ETP exceptions? Really appreciate your help.\n"
+
+        if dry_run:
+            print(f"---- NeedInfo Bug {bug_id} to {fetch_bug_creator(bug_id)} ----")
+            print(message)
+            print(f"------------------------------")
+        else:
+            needInfo(bug_id, message, fetch_bug_creator(bug_id))

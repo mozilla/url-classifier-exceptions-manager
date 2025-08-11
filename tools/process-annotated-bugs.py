@@ -36,13 +36,19 @@ def main():
         if "[privacy-team:diagnosed]" not in whiteboard:
             continue
 
-        if entry["severity"] == "S4":
+        if entry["severity"] == "S4" or entry["severity"] == "S3":
             continue
 
         url = entry["url"]
         if not url or not url.startswith("http"):
             print(f"Warning: Ignoring Bug {bug_id}, bad URL? {url}")
             continue
+
+        category = "convenience"
+        if "[exception-baseline]" in whiteboard:
+            category = "baseline"
+        elif "[exception-convenience]" in whiteboard:
+            category = "convenience"
 
         for (idx,line) in enumerate(user_story.splitlines()):
             if line.startswith("trackers-blocked:"):
@@ -55,10 +61,18 @@ def main():
 
                 print(f"Bug {bug_id}: {necessary_fix_domains}")
 
-                affected_bugs.append(bug_id)
 
-                for fix_domain in necessary_fix_domains:
-                    remote_settings.append(RemoteSettingsEntry(bug_id, fix_domain, url).toObject())
+                if not category:
+                    print(f"Warning: Ignoring Bug {bug_id}, no category found")
+                else:
+                    affected_bugs.append(bug_id)
+                    for fix_domain in necessary_fix_domains:
+                        remote_settings.append(RemoteSettingsEntry(
+                            bug_id, fix_domain, url, False, category,
+                            "", 'env.version|versionCompare("142.0a1") >= 0').toObject())
+                        remote_settings.append(RemoteSettingsEntry(
+                            bug_id, fix_domain, url, True, "convenience",
+                            "standard", 'env.version|versionCompare("142.0a1") < 0').toObject())
 
     print(affected_bugs)
     print(json.dumps(remote_settings, indent=2))

@@ -1,24 +1,30 @@
 """
 URL Classifier Exceptions Manager
 
-This script provides a command-line interface for managing URL classifier exceptions
-on a RemoteSettings server. It supports listing, adding, and removing exceptions
-with different server environments (dev, stage, prod).
+This script provides a command-line interface for managing URL classifier
+exceptions. It supports listing, adding, and removing exceptions
+with different server environments (dev, stage, prod). It also supports getting
+the bug data from Bugzilla.
 """
 
 import asyncio
 import argparse
 import json
-import uuid
 
 from kinto_http import AsyncClient, KintoException
+from .bugzilla import fetch_bug_data, needInfo, close_bug
+from .auto import auto_generate_exceptions, auto_close_bugs, auto_ni_bugs
+from .remoteSettings import (
+    list_exceptions,
+    add_exceptions,
+    remove_exceptions,
+    print_exception,
+)
 
 from .constants import (
     DEV_SERVER_LOCATION,
     STAGE_SERVER_LOCATION,
     PROD_SERVER_LOCATION,
-    REMOTE_SETTINGS_BUCKET,
-    REMOTE_SETTINGS_COLLECTION,
 )
 
 def lowercase_arg(value):
@@ -28,10 +34,10 @@ def lowercase_arg(value):
 def get_server_location_from_args(args):
     """
     Determine the server location based on command line arguments.
-    
+
     Args:
         args: Command line arguments containing the server selection
-        
+
     Returns:
         The URL of the selected server (dev, stage, or prod)
     """
@@ -42,310 +48,6 @@ def get_server_location_from_args(args):
     else:
         server_location = DEV_SERVER_LOCATION
     return server_location
-
-def parse_rs_record(record):
-    """
-    Parse a RemoteSettings record into a standardized format.
-    
-    Args:
-        record: The raw record from RemoteSettings
-        
-    Returns:
-        A dictionary containing the parsed record with standardized fields.
-        Optional fields are only included if they exist in the source record.
-    """
-    # Start with the required fields
-    bugIds = []
-    if "bugIds" in record:
-        bugIds = record["bugIds"]
-    elif "bugId" in record:
-        bugIds = [record["bugId"]]
-    parsed_record = {
-        "id": record["id"],
-        "bugIds": bugIds,
-        "urlPattern": record["urlPattern"],
-        "classifierFeatures": record["classifierFeatures"],
-        "category": record.get("category", "convenience"),
-    }
-    
-    # Add optional fields only if they exist in the source record
-    if "topLevelUrlPattern" in record:
-        parsed_record["topLevelUrlPattern"] = record["topLevelUrlPattern"]
-        
-    if "isPrivateBrowsingOnly" in record:
-        parsed_record["isPrivateBrowsingOnly"] = record["isPrivateBrowsingOnly"]
-        
-    if "filterContentBlockingCategories" in record:
-        parsed_record["filterContentBlockingCategories"] = record["filterContentBlockingCategories"]
-
-    if "filter_expression" in record:
-        parsed_record["filter_expression"] = record["filter_expression"]
-
-    return parsed_record
-
-def get_async_client(server_location, auth_token):
-    """
-    Create an asynchronous client for interacting with RemoteSettings.
-    
-    Args:
-        server_location: The URL of the RemoteSettings server
-        auth_token: Authentication token for the server
-        
-    Returns:
-        An AsyncClient instance configured for the specified server
-    """
-    return AsyncClient(
-        server_url=server_location,
-        auth=auth_token,
-        bucket=REMOTE_SETTINGS_BUCKET,
-        collection=REMOTE_SETTINGS_COLLECTION,
-    )
-
-async def get_exceptions(server_location, auth_token):
-    """
-    Retrieve all exceptions from the RemoteSettings server.
-    
-    Args:
-        server_location: The URL of the RemoteSettings server
-        auth_token: Authentication token for the server
-        
-    Returns:
-        A list of parsed exception records
-    """
-    async_client = get_async_client(server_location, auth_token)
-
-    records = await async_client.get_records()
-    remote_exceptions = [parse_rs_record(r) for r in records]
-    return remote_exceptions
-
-def print_exception(exception):
-    """
-    Print a single exception in JSON format.
-
-    Args:
-        exception: The exception record to print
-    """
-    print(json.dumps(exception, indent=2, sort_keys=True))
-    print("-" * 50)
-
-async def list_exceptions(server_location, auth_token, json_output=False):
-    """
-    List all exceptions from the RemoteSettings server.
-    
-    Args:
-        server_location: The URL of the RemoteSettings server
-        auth_token: Authentication token for the server
-        json_output: If True, output only the JSON data without decorative text
-    """
-    remote_exceptions = await get_exceptions(server_location, auth_token)
-    if json_output:
-        print(json.dumps(remote_exceptions, indent=2, sort_keys=True))
-    else:
-        print("\nURL Classifier Exceptions:")
-        print("=" * 50)
-        for exception in remote_exceptions:
-            print_exception(exception)
-        print("=" * 50)
-        print(f"Total exceptions: {len(remote_exceptions)}")
-
-async def update_records(async_client, records):
-    """
-    Update or create records in the RemoteSettings server.
-    
-    Args:
-        async_client: The AsyncClient instance for the server
-        records: List of records to update or create
-        
-    Returns:
-        The response from the server if successful, None otherwise
-    """
-    try:
-        for data in records:
-            # Remove bugId if present, always use bugIds
-            if "bugId" in data:
-                del data["bugId"]
-            # Ensure category is present
-            if "category" not in data:
-                data["category"] = "convenience"
-            rec_resp = await async_client.update_record(id=data['id'],
-                data=data)
-            if not rec_resp:
-                print('Failed to create/update record for %s. Error: %s' %
-                    (data['Name'], rec_resp.content.decode()))
-                return rec_resp
-    except KintoException as e:
-        print('Failed to create/update record for {0}. Error: {1}'
-            .format(data['Name'], e))
-
-async def request_review(async_client, is_dev):
-    """
-    Request a review for changes made to the RemoteSettings collection.
-    
-    Args:
-        async_client: The AsyncClient instance for the server
-        is_dev: Boolean indicating if the server is a development server
-    """
-    rs_collection = await async_client.get_collection()
-
-    if rs_collection:
-        # If any data was published, we want to request review for it
-        # status can be one of "work-in-progress", "to-sign" (approve), "to-review" (request review)
-        if rs_collection['data']['status'] == "work-in-progress":
-            if is_dev:
-                print("\n*** Dev server does not require a review, approving changes ***\n")
-                # review not enabled in dev, approve changes
-                await async_client.patch_collection(data={"status": "to-sign"});
-            else:
-                print("\n*** Requesting review for updated/created records ***\n")
-                await async_client.patch_collection(data={"status": "to-review"});
-        else:
-            print("\n*** No changes were made, no new review request is needed ***\n")
-    else:
-        print("\n*** Error while fetching collection status ***\n")
-
-def confirm_action(action_description, force=False):
-    """
-    Prompt the user for confirmation before proceeding with an action.
-    
-    Args:
-        action_description: A description of the action to be performed
-        force: If True, skip confirmation and proceed automatically
-        
-    Returns:
-        Boolean indicating whether the action should proceed
-    """
-    if force:
-        return True
-        
-    confirmation = input(f"\nAre you sure you want to {action_description}? (y/n): ")
-    return confirmation.lower() in ('y', 'yes')
-
-async def add_exceptions(server_location, auth_token, json_file, is_dev, force=False):
-    """
-    Add new exceptions or update existing ones from a JSON file.
-    
-    Args:
-        server_location: The URL of the RemoteSettings server
-        auth_token: Authentication token for the server
-        json_file: Path to the JSON file containing exceptions
-        is_dev: Boolean indicating if the server is a development server
-        force: If True, skip confirmation prompts
-    """
-    try:
-        with open(json_file, 'r') as f:
-            new_exceptions = json.load(f)
-    except Exception as e:
-        print(f"Import JSON Error: {str(e)}")
-        return
-
-    async_client = get_async_client(server_location, auth_token)
-    remote_exceptions = await get_exceptions(server_location, auth_token)
-
-    to_create = []
-    to_update = []
-
-    for exception in new_exceptions:
-        # Initialize variable to track if we find a matching exception
-        matching_remote = None
-        # Search through existing remote exceptions
-        for remote_exception in remote_exceptions:
-            # Match exceptions. If the id is the same, it's a match. Otherwise,
-            # we check urlPattern, bugIds, and classifierFeatures to determine if
-            # it's a match.
-            if "id" in exception and exception["id"] == remote_exception["id"]:
-                matching_remote = remote_exception
-                break
-            elif (
-                exception["urlPattern"] == remote_exception["urlPattern"] and
-                set(exception["bugIds"]) == set(remote_exception["bugIds"]) and
-                set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"]) and
-                set(exception["filterContentBlockingCategories"]) == set(remote_exception["filterContentBlockingCategories"])
-            ):
-                matching_remote = remote_exception
-                break
-
-        if matching_remote:
-            # For existing exceptions, copy the ID and add to update list
-            exception["id"] = matching_remote["id"]
-            to_update.append(exception)
-        else:
-            # For new exceptions, add to create list
-            exception["id"] = str(uuid.uuid4())
-            to_create.append(exception)
-
-    # Check if there are any exceptions to create or update
-    if not to_create and not to_update:
-        print(f"\nAll exceptions in the file already exist and are up-to-date.\n")
-        return
-
-    # Display exceptions that will be added
-    if to_create:
-        print("\nExceptions to be added:")
-        print("=" * 50)
-        for exception in to_create:
-            print_exception(exception)
-
-    # Display exceptions that will be updated
-    if to_update:
-        print("\nExceptions to be updated:")
-        print("=" * 50)
-        for exception in to_update:
-            print_exception(exception)
-
-    action_description = f"add new exceptions and update existing ones"
-    if not confirm_action(action_description, force):
-        print("Operation cancelled.")
-        return
-
-    await update_records(async_client, to_update)
-    await update_records(async_client, to_create)
-
-    await request_review(async_client, is_dev)
-    print(f"\nSummary: {len(to_create)} to create, {len(to_update)} to update")
-
-async def remove_exceptions(server_location, auth_token, exception_ids=None, remove_all=False, is_dev=False, force=False):
-    """
-    Remove exceptions from the RemoteSettings server.
-    
-    Args:
-        server_location: The URL of the RemoteSettings server
-        auth_token: Authentication token for the server
-        exception_ids: List of exception IDs to remove (optional)
-        remove_all: If True, remove all exceptions
-        is_dev: Boolean indicating if the server is a development server
-        force: If True, skip confirmation prompts
-    """
-    async_client = get_async_client(server_location, auth_token)
-
-    if remove_all:
-        # Get all records and delete them
-        action_description = "remove ALL exceptions from the server"
-        if not confirm_action(action_description, force):
-            print("Operation cancelled.")
-            return
-            
-        try:
-            await async_client.delete_records()
-        except KintoException as e:
-            print(f"Error removing all exceptions: {e}")
-            return
-
-        print(f"Successfully removed all exceptions")
-    else:
-        action_description = f"remove {len(exception_ids)} exception(s)"
-        if not confirm_action(action_description, force):
-            print("Operation cancelled.")
-            return
-            
-        try:
-            for exception_id in exception_ids:
-                await async_client.delete_record(id=exception_id)
-        except KintoException as e:
-            print(f"Error removing exceptions: {e}")
-            return
-        print(f"Successfully removed {len(exception_ids)} exception(s)")
-
-    await request_review(async_client, is_dev)
 
 async def execute():
     """
@@ -416,25 +118,210 @@ async def execute():
         action="store_true",
         help="Skip confirmation prompts")
 
+    # Bugzilla list bugs info command
+    bz_parser = subparsers.add_parser('bz-info', help='Get bug info from Bugzilla')
+    bz_parser.add_argument(
+        "--product",
+        default="Web Compatibility",
+        help="The product to get bug data for")
+    bz_parser.add_argument(
+        "--component",
+        default="Privacy: Site Reports",
+        help="The component to get bug data for")
+
+    # Bugzilla NeedInfo command
+    ni_parser = subparsers.add_parser('bz-ni', help='Send NeedInfo on Bugzilla')
+    ni_parser.add_argument(
+        "--bug-id",
+        help="The Bugzilla bug ID to close"
+    )
+    ni_parser.add_argument(
+        "--bug-ids-file",
+        help="Path to file containing bug IDs to close"
+    )
+    ni_parser.add_argument(
+        "--message",
+        required=True,
+        help="The message to test NeedInfo and Bugzilla"
+    )
+    ni_parser.add_argument(
+        "--requestee",
+        required=True,
+        help="The requestee to test NeedInfo and Bugzilla"
+    )
+
+    # Bugzilla close bug command
+    close_parser = subparsers.add_parser('bz-close', help='Close bugs on Bugzilla')
+    close_parser.add_argument(
+        "--bug-id",
+        help="The Bugzilla bug ID to close"
+    )
+    close_parser.add_argument(
+        "--bug-ids-file",
+        help="Path to file containing bug IDs to close"
+    )
+    close_parser.add_argument(
+        "--resolution",
+        required=True,
+        help="The resolution to close the bug"
+    )
+    close_parser.add_argument(
+        "--message",
+        required=True,
+        help="The message to close the bug"
+    )
+
+    # Auto command
+    auto_parser = subparsers.add_parser('auto', help='Automatically generate exceptions from Bugzilla')
+    auto_parser.add_argument(
+        "--server",
+        choices=["dev", "stage", "prod"],
+        required=True,
+        type=lowercase_arg,
+        help="The RemoteSettings server location (dev, stage, or prod)")
+    auto_parser.add_argument(
+        "--auth",
+        required=True,
+        help="Authentication token for the RemoteSettings server")
+    auto_parser.add_argument(
+        "--bz-cache",
+        help="Path to the Bugzilla cache JSON file"
+    )
+    auto_parser.add_argument(
+        "--rs-records",
+        help="Path to the RemoteSettings records JSON file"
+    )
+    auto_parser.add_argument(
+        "--output-exception-file",
+        help="Path to the output exception JSON file"
+    )
+    auto_parser.add_argument(
+        "--out-affected-bugs-file",
+        help="Path to the output affected bugs file"
+    )
+
+    # Auto close bugs command
+    auto_close_parser = subparsers.add_parser('auto-close', help='Automatically close bugs with prepopulated message')
+    auto_close_parser.add_argument(
+        "--auth",
+        required=True,
+        help="Authentication token for the RemoteSettings server"
+    )
+    auto_close_parser.add_argument(
+        "--bug-ids-file",
+        required=True,
+        help="Path to file containing bug IDs to close"
+    )
+    auto_close_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Dry run the command"
+    )
+
+    # Auto needInfo bug command
+    auto_ni_parser = subparsers.add_parser('auto-ni', help='Automatically send NeedInfo on Bugzilla')
+    auto_ni_parser.add_argument(
+        "--bug-ids-file",
+        required=True,
+        help="Path to file containing bug IDs to close"
+    )
+    auto_ni_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Dry run the command"
+    )
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         return
 
-    server_location = get_server_location_from_args(args)
-    auth_token = args.auth
-
     if args.command == 'list':
-        await list_exceptions(server_location, auth_token, args.json)
+        server_location = get_server_location_from_args(args)
+        auth_token = args.auth
+        remote_exceptions = await list_exceptions(server_location, auth_token)
+
+        if args.json:
+            print(json.dumps(remote_exceptions, indent=2, sort_keys=True))
+        else:
+            print("\nURL Classifier Exceptions:")
+            print("=" * 50)
+            for exception in remote_exceptions:
+                print_exception(exception)
+            print("=" * 50)
+            print(f"Total exceptions: {len(remote_exceptions)}")
     elif args.command == 'add':
-        await add_exceptions(server_location, auth_token, args.json_file, args.server == "dev", args.force)
+        server_location = get_server_location_from_args(args)
+        auth_token = args.auth
+        with open(args.json_file, 'r') as f:
+            new_exceptions = json.load(f)
+        await add_exceptions(server_location, auth_token, new_exceptions, args.server == "dev", args.force)
     elif args.command == 'remove':
+        server_location = get_server_location_from_args(args)
+        auth_token = args.auth
         if args.all:
             await remove_exceptions(server_location, auth_token, remove_all=True, is_dev=args.server == "dev", force=args.force)
         elif not args.exception_ids:
             remove_parser.error("Either --all or at least one exception_id must be provided")
         else:
             await remove_exceptions(server_location, auth_token, args.exception_ids, is_dev=args.server == "dev", force=args.force)
+    elif args.command == 'bz-info':
+        bugs = fetch_bug_data(args.product, args.component)
+        print(json.dumps(bugs, indent=2, sort_keys=True))
+    elif args.command == 'auto':
+        server_location = get_server_location_from_args(args)
+        auth_token = args.auth
+        bz_cache = args.bz_cache
+        rs_records = args.rs_records
+        output_exception_file = args.output_exception_file
+        out_affected_bugs_file = args.out_affected_bugs_file
+
+        await auto_generate_exceptions(
+            server_location, auth_token, bz_cache, rs_records,
+            output_exception_file, out_affected_bugs_file)
+    elif args.command == 'auto-close':
+        auth_token = args.auth
+        bug_ids_file = args.bug_ids_file
+        dry_run = args.dry_run
+
+        with open(bug_ids_file, 'r') as f:
+            bug_ids = f.read().splitlines()
+
+        await auto_close_bugs(auth_token, bug_ids, dry_run)
+    elif args.command == 'auto-ni':
+        bug_ids_file = args.bug_ids_file
+        dry_run = args.dry_run
+
+        with open(bug_ids_file, 'r') as f:
+            bug_ids = f.read().splitlines()
+        await auto_ni_bugs(bug_ids, dry_run)
+    elif args.command == 'bz-close':
+        # Validate that either --bug-id or --bug-ids-file is provided
+        if not args.bug_id and not args.bug_ids_file:
+            close_parser.error("Either --bug-id or --bug-ids-file must be provided")
+        if args.bug_id and args.bug_ids_file:
+            close_parser.error("Only one of --bug-id or --bug-ids-file can be provided")
+
+        if args.bug_id:
+            close_bug(args.bug_id, args.resolution, args.message)
+        else:
+            with open(args.bug_ids_file, 'r') as f:
+                bug_ids = f.read().splitlines()
+            for bug_id in bug_ids:
+                close_bug(bug_id, args.resolution, args.message)
+    elif args.command == 'bz-ni':
+        if not args.bug_id and not args.bug_ids_file:
+            ni_parser.error("Either --bug-id or --bug-ids-file must be provided")
+        if args.bug_id and args.bug_ids_file:
+            ni_parser.error("Only one of --bug-id or --bug-ids-file can be provided")
+
+        if args.bug_id:
+            needInfo(args.bug_id, args.message, args.requestee)
+        else:
+            with open(args.bug_ids_file, 'r') as f:
+                bug_ids = f.read().splitlines()
+            for bug_id in bug_ids:
+                needInfo(bug_id, args.message, args.requestee)
 
 def main():
     asyncio.run(execute())
