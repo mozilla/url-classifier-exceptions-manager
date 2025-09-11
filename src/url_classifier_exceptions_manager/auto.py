@@ -30,18 +30,10 @@ def is_already_in_exception(bug_id, exceptions):
             return True
     return False
 
-async def auto_generate_exceptions(server_location, auth_token, bz_cache = None, rs_records = None, output_exception_file = None, out_affected_bugs_file = None):
-    if bz_cache:
-        with open(bz_cache, "r") as f:
-            bugs_data = json.load(f)
-    else:
-        bugs_data = fetch_bug_data("Web Compatibility", "Privacy: Site Reports")
+async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dry_run=False):
 
-    if rs_records:
-        with open(rs_records, "r") as f:
-            rs_records = json.load(f)
-    else:
-        rs_records = await list_exceptions(server_location, auth_token)
+    bugs_data = fetch_bug_data("Web Compatibility", "Privacy: Site Reports")
+    rs_records = await list_exceptions(server_location, auth_token)
 
     # Create a list of ExceptionEntry objects from the RemoteSettings records
     current_exceptions = []
@@ -50,7 +42,8 @@ async def auto_generate_exceptions(server_location, auth_token, bz_cache = None,
         entry.fromRSRecord(record)
         current_exceptions.append(entry)
 
-    affected_bugs = []
+    bugs_need_exception = []
+    bugs_have_exception = []
     new_exceptions = []
 
     for entry in sorted(bugs_data["bugs"], key=lambda x: x["id"], reverse=True):
@@ -69,6 +62,12 @@ async def auto_generate_exceptions(server_location, auth_token, bz_cache = None,
 
         # Skip if the entries are already in the RemoteSettings server.
         if is_already_in_exception(bug_id, current_exceptions):
+            if is_prod_server:
+                bugs_have_exception.append(bug_id)
+            continue
+
+        # Skip if the category hasn't been set.
+        if "[exception-baseline]" not in whiteboard and "[exception-convenience]" not in whiteboard:
             continue
 
         url = entry["url"]
@@ -111,7 +110,7 @@ async def auto_generate_exceptions(server_location, auth_token, bz_cache = None,
         if not domains_to_fix:
             continue
 
-        affected_bugs.append(bug_id)
+        bugs_need_exception.append(bug_id)
         for domain in domains_to_fix:
             entryAfter142 = ExceptionEntry()
             entryAfter142.fromArguments(
@@ -138,22 +137,30 @@ async def auto_generate_exceptions(server_location, auth_token, bz_cache = None,
 
     new_exceptions_objects = [exc.toObject() for exc in new_exceptions]
 
-    if output_exception_file:
-        with open(output_exception_file, "w") as f:
-            json.dump(new_exceptions_objects, f, indent=2)
-    else:
-        print(json.dumps(new_exceptions_objects, indent=2))
+    print("New exceptions:")
+    print(json.dumps(new_exceptions_objects, indent=2))
 
-    if out_affected_bugs_file:
-        with open(out_affected_bugs_file, "w") as f:
-            for bug_id in affected_bugs:
-                f.write(str(bug_id) + "\n")
-    else:
-        print(affected_bugs)
+    print("Bugs that will get exceptions deployed:")
+    print(bugs_need_exception)
 
-    await add_exceptions(
-        server_location, auth_token, new_exceptions_objects,
-        is_dev=server_location == "dev", force=False)
+    if dry_run is False:
+        print("Adding exceptions to the RemoteSettings server...")
+        await add_exceptions(
+            server_location, auth_token, new_exceptions_objects,
+            is_dev=server_location == "dev", force=False)
+
+    # If the server is not prod, we are done here.
+    if is_prod_server is False:
+        return
+
+    print("Closing bugs that have exceptions deployed...")
+    print(bugs_have_exception)
+    # Start closing bugs that have exceptions deployed.
+    await auto_close_bugs(auth_token, bugs_have_exception, dry_run)
+
+    print("Needinfo bugs that have exceptions deployed...")
+    # Start needinfo bugs that have exceptions deployed.
+    await auto_ni_bugs(bugs_have_exception, dry_run)
 
 async def auto_close_bugs(auth_token, bug_list, dry_run=False):
     # First, fetch the RemoteSettings records. We need them to check if the
@@ -172,10 +179,11 @@ async def auto_close_bugs(auth_token, bug_list, dry_run=False):
             if "id" in entry.obj:
                 del entry.obj["id"]
             # Check if the bug_id is in the entry.bugIds list.
-            if bug_id in entry.obj["bugIds"]:
+            if str(bug_id) in entry.obj["bugIds"]:
                 matching_entries.append(entry)
 
         if not matching_entries:
+            print(f"Warning: Bug {bug_id} not found in the RemoteSettings server.")
             continue
 
         # Construct the message to close the bug.

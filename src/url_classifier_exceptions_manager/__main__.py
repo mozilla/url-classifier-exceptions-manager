@@ -11,9 +11,8 @@ import asyncio
 import argparse
 import json
 
-from kinto_http import AsyncClient, KintoException
 from .bugzilla import fetch_bug_data, needInfo, close_bug
-from .auto import auto_generate_exceptions, auto_close_bugs, auto_ni_bugs
+from .auto import auto_deploy_exceptions
 from .remoteSettings import (
     list_exceptions,
     add_exceptions,
@@ -184,48 +183,6 @@ async def execute():
         required=True,
         help="Authentication token for the RemoteSettings server")
     auto_parser.add_argument(
-        "--bz-cache",
-        help="Path to the Bugzilla cache JSON file"
-    )
-    auto_parser.add_argument(
-        "--rs-records",
-        help="Path to the RemoteSettings records JSON file"
-    )
-    auto_parser.add_argument(
-        "--output-exception-file",
-        help="Path to the output exception JSON file"
-    )
-    auto_parser.add_argument(
-        "--out-affected-bugs-file",
-        help="Path to the output affected bugs file"
-    )
-
-    # Auto close bugs command
-    auto_close_parser = subparsers.add_parser('auto-close', help='Automatically close bugs with prepopulated message')
-    auto_close_parser.add_argument(
-        "--auth",
-        required=True,
-        help="Authentication token for the RemoteSettings server"
-    )
-    auto_close_parser.add_argument(
-        "--bug-ids-file",
-        required=True,
-        help="Path to file containing bug IDs to close"
-    )
-    auto_close_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Dry run the command"
-    )
-
-    # Auto needInfo bug command
-    auto_ni_parser = subparsers.add_parser('auto-ni', help='Automatically send NeedInfo on Bugzilla')
-    auto_ni_parser.add_argument(
-        "--bug-ids-file",
-        required=True,
-        help="Path to file containing bug IDs to close"
-    )
-    auto_ni_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Dry run the command"
@@ -271,30 +228,9 @@ async def execute():
     elif args.command == 'auto':
         server_location = get_server_location_from_args(args)
         auth_token = args.auth
-        bz_cache = args.bz_cache
-        rs_records = args.rs_records
-        output_exception_file = args.output_exception_file
-        out_affected_bugs_file = args.out_affected_bugs_file
 
-        await auto_generate_exceptions(
-            server_location, auth_token, bz_cache, rs_records,
-            output_exception_file, out_affected_bugs_file)
-    elif args.command == 'auto-close':
-        auth_token = args.auth
-        bug_ids_file = args.bug_ids_file
-        dry_run = args.dry_run
-
-        with open(bug_ids_file, 'r') as f:
-            bug_ids = f.read().splitlines()
-
-        await auto_close_bugs(auth_token, bug_ids, dry_run)
-    elif args.command == 'auto-ni':
-        bug_ids_file = args.bug_ids_file
-        dry_run = args.dry_run
-
-        with open(bug_ids_file, 'r') as f:
-            bug_ids = f.read().splitlines()
-        await auto_ni_bugs(bug_ids, dry_run)
+        await auto_deploy_exceptions(
+            server_location, auth_token, args.server == "prod", args.dry_run)
     elif args.command == 'bz-close':
         # Validate that either --bug-id or --bug-ids-file is provided
         if not args.bug_id and not args.bug_ids_file:
