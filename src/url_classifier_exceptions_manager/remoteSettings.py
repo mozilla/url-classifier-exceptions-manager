@@ -1,10 +1,12 @@
 import json
 import uuid
+import aiohttp
 
 from kinto_http import AsyncClient, KintoException
 from .constants import (
     REMOTE_SETTINGS_BUCKET,
     REMOTE_SETTINGS_COLLECTION,
+    PROD_RECORDS_LOCATION,
 )
 
 def confirm_action(action_description, force=False):
@@ -294,3 +296,20 @@ async def remove_exceptions(server_location, auth_token, exception_ids=None, rem
         print(f"Successfully removed {len(exception_ids)} exception(s)")
 
     await request_review(async_client, is_dev)
+
+async def get_prod_records():
+    """
+    Download and return production records from the PROD_RECORDS_LOCATION.
+    
+    Returns:
+        A list of production exception records
+    """
+    async with aiohttp.ClientSession() as session:
+        async with session.get(PROD_RECORDS_LOCATION) as response:
+            if response.status == 200:
+                data = await response.json()
+                records = data["data"]
+                remote_exceptions = [parse_rs_record(r) for r in records]
+                return remote_exceptions
+            else:
+                raise Exception(f"Failed to fetch production records. Status: {response.status}")

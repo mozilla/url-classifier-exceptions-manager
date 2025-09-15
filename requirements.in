@@ -1,5 +1,6 @@
 kinto-http==11.8.0
 bugsy==0.12.0
 six
+aiohttp
 asyncio
 argparse

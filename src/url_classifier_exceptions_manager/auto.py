@@ -3,7 +3,7 @@ import json
 from urllib.parse import urlparse
 
 from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator
-from .remoteSettings import list_exceptions, add_exceptions
+from .remoteSettings import list_exceptions, add_exceptions, get_prod_records
 from .exceptionEntry import ExceptionEntry
 
 from .constants import (
@@ -166,7 +166,7 @@ async def auto_close_bugs(auth_token, bug_list, dry_run=False):
     # First, fetch the RemoteSettings records. We need them to check if the
     # Record for the bug is already in the RemoteSettings server.
     # We only check against the prod server for closing bugs.
-    rs_records = await list_exceptions(PROD_SERVER_LOCATION, auth_token)
+    rs_records = await get_prod_records()
 
     for bug_id in bug_list:
         # Find all entries that contain this bug_id
