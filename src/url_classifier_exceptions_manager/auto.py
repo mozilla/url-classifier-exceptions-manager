@@ -3,7 +3,7 @@ import json
 from urllib.parse import urlparse
 
 from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator
-from .remoteSettings import list_exceptions, add_exceptions, get_prod_records
+from .remoteSettings import list_exceptions, add_exceptions, get_deployed_records
 from .exceptionEntry import ExceptionEntry
 
 from .constants import (
@@ -34,6 +34,7 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
 
     bugs_data = fetch_bug_data("Web Compatibility", "Privacy: Site Reports")
     rs_records = await list_exceptions(server_location, auth_token)
+    deployed_records = await get_deployed_records("prod" if is_prod_server else "stage")
 
     # Create a list of ExceptionEntry objects from the RemoteSettings records
     current_exceptions = []
@@ -41,6 +42,12 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
         entry = ExceptionEntry()
         entry.fromRSRecord(record)
         current_exceptions.append(entry)
+
+    deployed_exceptions = []
+    for record in deployed_records:
+        entry = ExceptionEntry()
+        entry.fromRSRecord(record)
+        deployed_exceptions.append(entry)
 
     bugs_need_exception = []
     bugs_have_exception = []
@@ -60,9 +67,10 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
         if entry["status"] == "REOPENED":
             continue
 
-        # Skip if the entries are already in the RemoteSettings server.
+        # Skip if the entries are already in the RemoteSettings server. Also
+        # record bugs that have exceptions deployed.
         if is_already_in_exception(bug_id, current_exceptions):
-            if is_prod_server:
+            if is_prod_server and is_already_in_exception(bug_id, deployed_exceptions):
                 bugs_have_exception.append(bug_id)
             continue
 
@@ -166,7 +174,7 @@ async def auto_close_bugs(auth_token, bug_list, dry_run=False):
     # First, fetch the RemoteSettings records. We need them to check if the
     # Record for the bug is already in the RemoteSettings server.
     # We only check against the prod server for closing bugs.
-    rs_records = await get_prod_records()
+    rs_records = await get_deployed_records("prod")
 
     for bug_id in bug_list:
         # Find all entries that contain this bug_id

@@ -7,6 +7,7 @@ from .constants import (
     REMOTE_SETTINGS_BUCKET,
     REMOTE_SETTINGS_COLLECTION,
     PROD_RECORDS_LOCATION,
+    STAGE_RECORDS_LOCATION,
 )
 
 def confirm_action(action_description, force=False):
@@ -297,15 +298,23 @@ async def remove_exceptions(server_location, auth_token, exception_ids=None, rem
 
     await request_review(async_client, is_dev)
 
-async def get_prod_records():
+async def get_deployed_records(server):
     """
     Download and return production records from the PROD_RECORDS_LOCATION.
     
     Returns:
         A list of production exception records
     """
+    if server == "prod":
+        records_location = PROD_RECORDS_LOCATION
+    elif server == "stage":
+        records_location = STAGE_RECORDS_LOCATION
+    else:
+        raise Exception(f"Invalid server: {server}")
+
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(PROD_RECORDS_LOCATION) as response:
+        async with session.get(records_location) as response:
             if response.status == 200:
                 data = await response.json()
                 records = data["data"]
