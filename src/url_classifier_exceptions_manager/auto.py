@@ -30,7 +30,7 @@ def is_already_in_exception(bug_id, exceptions):
             return True
     return False
 
-async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dry_run=False):
+async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dry_run=False, force=False):
 
     bugs_data = fetch_bug_data("Web Compatibility", "Privacy: Site Reports")
     rs_records = await list_exceptions(server_location, auth_token)
@@ -155,7 +155,7 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
         print("Adding exceptions to the RemoteSettings server...")
         await add_exceptions(
             server_location, auth_token, new_exceptions_objects,
-            is_dev=server_location == "dev", force=False)
+            is_dev=server_location == "dev", force=force)
 
     # If the server is not prod, we are done here.
     if is_prod_server is False:

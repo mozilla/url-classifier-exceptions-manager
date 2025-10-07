@@ -187,6 +187,11 @@ async def execute():
         action="store_true",
         help="Dry run the command"
     )
+    auto_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompts"
+    )
 
     args = parser.parse_args()
     if not args.command:
@@ -230,7 +235,7 @@ async def execute():
         auth_token = args.auth
 
         await auto_deploy_exceptions(
-            server_location, auth_token, args.server == "prod", args.dry_run)
+            server_location, auth_token, args.server == "prod", args.dry_run, args.force)
     elif args.command == 'bz-close':
         # Validate that either --bug-id or --bug-ids-file is provided
         if not args.bug_id and not args.bug_ids_file:
