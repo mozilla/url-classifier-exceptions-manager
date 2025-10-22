@@ -66,6 +66,10 @@ async def execute():
         type=lowercase_arg,
         help="The RemoteSettings server location (dev, stage, or prod)")
     list_parser.add_argument(
+        "--server-location",
+        help="The server location to list the exceptions from. If not provided, the default server location will be used."
+    )
+    list_parser.add_argument(
         "--auth",
         required=True,
         help="Authentication token for the RemoteSettings server")
@@ -83,6 +87,10 @@ async def execute():
         required=True,
         type=lowercase_arg,
         help="The RemoteSettings server location (dev, stage, or prod)")
+    add_parser.add_argument(
+        "--server-location",
+        help="The server location to add the exceptions to. If not provided, the default server location will be used."
+    )
     add_parser.add_argument(
         "--auth",
         required=True,
@@ -108,6 +116,10 @@ async def execute():
         required=True,
         type=lowercase_arg,
         help="The RemoteSettings server location (dev, stage, or prod)")
+    remove_parser.add_argument(
+        "--server-location",
+        help="The server location to remove the exceptions from. If not provided, the default server location will be used."
+    )
     remove_parser.add_argument(
         "--auth",
         required=True,
@@ -179,6 +191,10 @@ async def execute():
         type=lowercase_arg,
         help="The RemoteSettings server location (dev, stage, or prod)")
     auto_parser.add_argument(
+        "--server-location",
+        help="The server location to deploy the exceptions to. If not provided, the default server location will be used."
+    )
+    auto_parser.add_argument(
         "--auth",
         required=True,
         help="Authentication token for the RemoteSettings server")
@@ -199,7 +215,10 @@ async def execute():
         return
 
     if args.command == 'list':
-        server_location = get_server_location_from_args(args)
+        if args.server_location:
+            server_location = args.server_location
+        else:
+            server_location = get_server_location_from_args(args)
         auth_token = args.auth
         remote_exceptions = await list_exceptions(server_location, auth_token)
 
@@ -213,13 +232,19 @@ async def execute():
             print("=" * 50)
             print(f"Total exceptions: {len(remote_exceptions)}")
     elif args.command == 'add':
-        server_location = get_server_location_from_args(args)
+        if args.server_location:
+            server_location = args.server_location
+        else:
+            server_location = get_server_location_from_args(args)
         auth_token = args.auth
         with open(args.json_file, 'r') as f:
             new_exceptions = json.load(f)
         await add_exceptions(server_location, auth_token, new_exceptions, args.server == "dev", args.force)
     elif args.command == 'remove':
-        server_location = get_server_location_from_args(args)
+        if args.server_location:
+            server_location = args.server_location
+        else:
+            server_location = get_server_location_from_args(args)
         auth_token = args.auth
         if args.all:
             await remove_exceptions(server_location, auth_token, remove_all=True, is_dev=args.server == "dev", force=args.force)
@@ -231,7 +256,10 @@ async def execute():
         bugs = fetch_bug_data(args.product, args.component)
         print(json.dumps(bugs, indent=2, sort_keys=True))
     elif args.command == 'auto':
-        server_location = get_server_location_from_args(args)
+        if args.server_location:
+            server_location = args.server_location
+        else:
+            server_location = get_server_location_from_args(args)
         auth_token = args.auth
 
         await auto_deploy_exceptions(
