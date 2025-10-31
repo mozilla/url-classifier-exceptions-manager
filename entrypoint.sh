@@ -28,5 +28,7 @@ DRY_RUN="${DRY_RUN:-}"
 # bugs.
 BZ_API_KEY=$(get_env_var "BZ_API_KEY")
 
+printenv
+
 # Execute the command
 uce-manager auto --server "$ENVIRONMENT" --server-location "$SERVER" --auth "$AUTHORIZATION" ${DRY_RUN:+--dry-run} ${FORCE:+--force}

@@ -32,6 +32,8 @@ def is_already_in_exception(bug_id, exceptions):
 
 async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dry_run=False, force=False):
 
+    print(f"Executing auto deploy exceptions for server {server_location} with is_prod_server {is_prod_server} and dry_run {dry_run} and force {force}")
+
     bugs_data = fetch_bug_data("Web Compatibility", "Privacy: Site Reports")
     rs_records = await list_exceptions(server_location, auth_token)
     deployed_records = await get_deployed_records("prod" if is_prod_server else "stage")
