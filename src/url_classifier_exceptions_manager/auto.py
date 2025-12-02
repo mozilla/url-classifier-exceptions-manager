@@ -3,7 +3,7 @@ import json
 from urllib.parse import urlparse
 
 from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator
-from .remoteSettings import list_exceptions, add_exceptions, get_deployed_records
+from .remoteSettings import list_exceptions, add_exceptions, request_review_exceptions, get_deployed_records
 from .exceptionEntry import ExceptionEntry
 
 from .constants import (
@@ -155,9 +155,11 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
 
     if dry_run is False:
         print("Adding exceptions to the RemoteSettings server...")
+        is_dev = server_location == "dev"
         await add_exceptions(
             server_location, auth_token, new_exceptions_objects,
-            is_dev=server_location == "dev", force=force)
+            is_dev=is_dev, force=force)
+        await request_review_exceptions(server_location, auth_token, is_dev=is_dev)
 
     # If the server is not prod, we are done here.
     if is_prod_server is False:

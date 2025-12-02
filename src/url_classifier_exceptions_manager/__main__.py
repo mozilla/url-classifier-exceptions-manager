@@ -17,6 +17,7 @@ from .remoteSettings import (
     list_exceptions,
     add_exceptions,
     remove_exceptions,
+    request_review_exceptions,
     print_exception,
 )
 
@@ -239,7 +240,9 @@ async def execute():
         auth_token = args.auth
         with open(args.json_file, 'r') as f:
             new_exceptions = json.load(f)
-        await add_exceptions(server_location, auth_token, new_exceptions, args.server == "dev", args.force)
+        is_dev = args.server == "dev"
+        await add_exceptions(server_location, auth_token, new_exceptions, is_dev, args.force)
+        await request_review_exceptions(server_location, auth_token, is_dev)
     elif args.command == 'remove':
         if args.server_location:
             server_location = args.server_location
@@ -251,7 +254,9 @@ async def execute():
         elif not args.exception_ids:
             remove_parser.error("Either --all or at least one exception_id must be provided")
         else:
-            await remove_exceptions(server_location, auth_token, args.exception_ids, is_dev=args.server == "dev", force=args.force)
+            is_dev = args.server == "dev"
+            await remove_exceptions(server_location, auth_token, args.exception_ids, is_dev=is_dev, force=args.force)
+            await request_review_exceptions(server_location, auth_token, is_dev=is_dev)
     elif args.command == 'bz-info':
         bugs = fetch_bug_data(args.product, args.component)
         print(json.dumps(bugs, indent=2, sort_keys=True))

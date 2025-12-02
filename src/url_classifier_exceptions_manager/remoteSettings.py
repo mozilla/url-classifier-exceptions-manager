@@ -251,7 +251,6 @@ async def add_exceptions(server_location, auth_token, new_exceptions, is_dev, fo
     await update_records(async_client, to_update)
     await update_records(async_client, to_create)
 
-    await request_review(async_client, is_dev)
     print(f"\nSummary: {len(to_create)} to create, {len(to_update)} to update")
 
 async def remove_exceptions(server_location, auth_token, exception_ids=None, remove_all=False, is_dev=False, force=False):
@@ -296,6 +295,11 @@ async def remove_exceptions(server_location, auth_token, exception_ids=None, rem
             return
         print(f"Successfully removed {len(exception_ids)} exception(s)")
 
+async def request_review_exceptions(server_location, auth_token, is_dev=False):
+    """
+    Request a review for changes made to the RemoteSettings collection.
+    """
+    async_client = get_async_client(server_location, auth_token)
     await request_review(async_client, is_dev)
 
 async def get_deployed_records(server):
