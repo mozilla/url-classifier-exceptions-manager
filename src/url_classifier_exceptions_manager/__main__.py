@@ -11,7 +11,7 @@ import asyncio
 import argparse
 import json
 
-from .bugzilla import fetch_bug_data, needInfo, close_bug
+from .bugzilla import fetch_bug_data, needInfo, close_bug, fetch_bug
 from .auto import auto_deploy_exceptions
 from .remoteSettings import (
     list_exceptions,
@@ -183,6 +183,17 @@ async def execute():
         help="The message to close the bug"
     )
 
+    # Bugzilla fetch bug info command
+    fetch_parser = subparsers.add_parser('bz-fetch', help='Fetch bug info from Bugzilla')
+    fetch_parser.add_argument(
+        "--bug-id",
+        help="The Bugzilla bug ID to fetch"
+    )
+    fetch_parser.add_argument(
+        "--include-fields",
+        help="The fields to include in the bug info"
+    )
+
     # Auto command
     auto_parser = subparsers.add_parser('auto', help='Automatically generate exceptions from Bugzilla')
     auto_parser.add_argument(
@@ -296,6 +307,15 @@ async def execute():
                 bug_ids = f.read().splitlines()
             for bug_id in bug_ids:
                 needInfo(bug_id, args.message, args.requestee)
+    elif args.command == 'bz-fetch':
+        if not args.bug_id:
+            fetch_parser.error("--bug-id is required")
+        if args.include_fields:
+            fields = args.include_fields.split(",")
+        else:
+            fields = None
+        bug = fetch_bug(args.bug_id, fields)
+        print(json.dumps(bug, indent=2, sort_keys=True))
 
 def main():
     asyncio.run(execute())

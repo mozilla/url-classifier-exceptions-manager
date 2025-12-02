@@ -2,7 +2,7 @@ import json
 
 from urllib.parse import urlparse
 
-from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator
+from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator, fetch_bug
 from .remoteSettings import list_exceptions, add_exceptions, request_review_exceptions, get_deployed_records
 from .exceptionEntry import ExceptionEntry
 
@@ -168,13 +168,13 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
     print("Closing bugs that have exceptions deployed...")
     print(bugs_have_exception)
     # Start closing bugs that have exceptions deployed.
-    await auto_close_bugs(auth_token, bugs_have_exception, dry_run)
+    await auto_close_bugs(bugs_have_exception, dry_run)
 
     print("Needinfo bugs that have exceptions deployed...")
     # Start needinfo bugs that have exceptions deployed.
     await auto_ni_bugs(bugs_have_exception, dry_run)
 
-async def auto_close_bugs(auth_token, bug_list, dry_run=False):
+async def auto_close_bugs(bug_list, dry_run=False):
     # First, fetch the RemoteSettings records. We need them to check if the
     # Record for the bug is already in the RemoteSettings server.
     # We only check against the prod server for closing bugs.
@@ -207,12 +207,19 @@ async def auto_close_bugs(auth_token, bug_list, dry_run=False):
             message += f"{entry.toJSON()}\n"
         message += f"```\n"
 
+        bug_data = fetch_bug(bug_id, "whiteboard")
+        whiteboard = bug_data["bugs"][0]["whiteboard"]
+
+        # Strip the [privacy-team:diagnosed] tag from the whiteboard.
+        whiteboard = whiteboard.replace("[privacy-team:diagnosed]", "")
+        whiteboard = whiteboard.strip()
+
         if dry_run:
             print(f"---- Closing Bug {bug_id} ----")
             print(message)
             print(f"------------------------------")
         else:
-            close_bug(bug_id, "FIXED", message)
+            close_bug(bug_id, "FIXED", message, whiteboard)
 
 async def auto_ni_bugs(bug_list, dry_run=False):
     for bug_id in bug_list:
