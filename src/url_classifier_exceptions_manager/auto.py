@@ -24,11 +24,19 @@ def is_exempted_by_global_exceptions(host, exceptions):
 
     return False
 
-def is_already_in_exception(bug_id, exceptions):
-    for e in exceptions:
-        if str(bug_id) in e.obj["bugIds"]:
-            return True
-    return False
+def is_already_in_exception(entries, exceptions):
+    """
+    Check whether all given entries already exist in the given exceptions.
+
+    entries: list of ExceptionEntry objects to check.
+    exceptions: list of existing ExceptionEntry objects.
+    """
+    existing_signatures = {exc.entry_signature() for exc in exceptions}
+    for entry in entries:
+        if entry.entry_signature() not in existing_signatures:
+            return False
+    return True
+
 
 async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dry_run=False, force=False):
 
@@ -67,13 +75,6 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
 
         # Skip if the bug has the status "REOPENED"
         if entry["status"] == "REOPENED":
-            continue
-
-        # Skip if the entries are already in the RemoteSettings server. Also
-        # record bugs that have exceptions deployed.
-        if is_already_in_exception(bug_id, current_exceptions):
-            if is_prod_server and is_already_in_exception(bug_id, deployed_exceptions):
-                bugs_have_exception.append(bug_id)
             continue
 
         # Skip if the category hasn't been set.
@@ -120,7 +121,7 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
         if not domains_to_fix:
             continue
 
-        bugs_need_exception.append(bug_id)
+        exceptions_to_add = []
         for domain in domains_to_fix:
             entryAfter142 = ExceptionEntry()
             entryAfter142.fromArguments(
@@ -131,7 +132,7 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
                 topLevelUrlPattern=url,
                 filter_expression='env.version|versionCompare("142.0a1") >= 0'
             )
-            new_exceptions.append(entryAfter142)
+            exceptions_to_add.append(entryAfter142)
             entryBefore142 = ExceptionEntry()
             entryBefore142.fromArguments(
                 bugIds=[str(bug_id)],
@@ -143,7 +144,18 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
                 filterContentBlockingCategories=["standard"],
                 filter_expression='env.version|versionCompare("142.0a1") < 0'
             )
-            new_exceptions.append(entryBefore142)
+            exceptions_to_add.append(entryBefore142)
+
+        # Skip if the entries are already in the RemoteSettings server. Also
+        # record bugs that have exceptions deployed.
+        if is_already_in_exception(exceptions_to_add, current_exceptions):
+            if is_prod_server and is_already_in_exception(exceptions_to_add, deployed_exceptions):
+                bugs_have_exception.append(bug_id)
+            continue
+
+        # Record bugs that need exceptions deployed.
+        bugs_need_exception.append(bug_id)
+        new_exceptions.extend(exceptions_to_add)
 
     new_exceptions_objects = [exc.toObject() for exc in new_exceptions]
 
