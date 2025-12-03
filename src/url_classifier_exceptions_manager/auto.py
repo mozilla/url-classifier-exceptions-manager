@@ -2,8 +2,20 @@ import json
 
 from urllib.parse import urlparse
 
-from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator, fetch_bug
-from .remoteSettings import list_exceptions, add_exceptions, request_review_exceptions, get_deployed_records
+from .bugzilla import (
+    fetch_bug_data,
+    close_bug,
+    needInfo,
+    fetch_bug_creator,
+    fetch_bug
+)
+from .remoteSettings import (
+    list_exceptions,
+    add_exceptions,
+    remove_exceptions,
+    request_review_exceptions,
+    get_deployed_records
+)
 from .exceptionEntry import ExceptionEntry
 
 from .constants import (
@@ -36,6 +48,17 @@ def is_already_in_exception(entries, exceptions):
         if entry.entry_signature() not in existing_signatures:
             return False
     return True
+
+def find_entries_by_bug_id(bug_id, exceptions):
+    """
+    Find entries whose bugIds list contains only the given bug ID.
+    """
+    entries = []
+    for exception in exceptions:
+        bug_ids = exception.obj.get("bugIds", [])
+        if len(bug_ids) == 1 and str(bug_id) == str(bug_ids[0]):
+            entries.append(exception)
+    return entries
 
 
 async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dry_run=False, force=False):
@@ -71,10 +94,6 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
 
         # Skip if the bug is not diagnosed by the privacy team
         if "[privacy-team:diagnosed]" not in whiteboard:
-            continue
-
-        # Skip if the bug has the status "REOPENED"
-        if entry["status"] == "REOPENED":
             continue
 
         # Skip if the category hasn't been set.
@@ -152,6 +171,17 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
             if is_prod_server and is_already_in_exception(exceptions_to_add, deployed_exceptions):
                 bugs_have_exception.append(bug_id)
             continue
+
+        # The bug is reopened with the [privacy-team:diagnosed] tag. So, we need
+        # to remove the exceptions before adding new ones.
+        if entry["status"] == "REOPENED":
+            entries = find_entries_by_bug_id(bug_id, current_exceptions)
+            if entries:
+                entries_ids = [entry.obj["id"] for entry in entries]
+                if dry_run is False:
+                    await remove_exceptions(server_location, auth_token, entries_ids, False, force=force)
+                else:
+                    print(f"Would remove exceptions for Bug {bug_id}: {entries_ids}")
 
         # Record bugs that need exceptions deployed.
         bugs_need_exception.append(bug_id)
