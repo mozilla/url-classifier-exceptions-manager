@@ -253,7 +253,7 @@ async def add_exceptions(server_location, auth_token, new_exceptions, is_dev, fo
 
     print(f"\nSummary: {len(to_create)} to create, {len(to_update)} to update")
 
-async def remove_exceptions(server_location, auth_token, exception_ids=None, remove_all=False, is_dev=False, force=False):
+async def remove_exceptions(server_location, auth_token, exception_ids=None, remove_all=False, force=False):
     """
     Remove exceptions from the RemoteSettings server.
 

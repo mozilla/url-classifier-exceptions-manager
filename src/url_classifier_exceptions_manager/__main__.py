@@ -261,12 +261,13 @@ async def execute():
             server_location = get_server_location_from_args(args)
         auth_token = args.auth
         if args.all:
-            await remove_exceptions(server_location, auth_token, remove_all=True, is_dev=args.server == "dev", force=args.force)
+            await remove_exceptions(server_location, auth_token, remove_all=True, force=args.force)
+            await request_review_exceptions(server_location, auth_token, is_dev=is_dev)
         elif not args.exception_ids:
             remove_parser.error("Either --all or at least one exception_id must be provided")
         else:
             is_dev = args.server == "dev"
-            await remove_exceptions(server_location, auth_token, args.exception_ids, is_dev=is_dev, force=args.force)
+            await remove_exceptions(server_location, auth_token, args.exception_ids, force=args.force)
             await request_review_exceptions(server_location, auth_token, is_dev=is_dev)
     elif args.command == 'bz-info':
         bugs = fetch_bug_data(args.product, args.component)
