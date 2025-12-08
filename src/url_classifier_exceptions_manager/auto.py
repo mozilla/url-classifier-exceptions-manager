@@ -197,8 +197,7 @@ async def auto_close_bugs(auth_token, bug_list, dry_run=False):
             continue
 
         # Construct the message to close the bug.
-        message = f"This message is auto-generated.\n\n"
-        message += f"Enhanced Tracking Protection (ETP) exceptions have been deployed to address this issue.\n"
+        message = f"Enhanced Tracking Protection (ETP) exceptions have been deployed to address this issue.\n"
         message += f"You can view all current exceptions for this bug in the ETP exceptions dashboard: https://etp-exceptions.mozilla.org/?bug_id={bug_id}\n\n"
         message += f"We have deployed the following exceptions:\n"
         message += f"```json\n"
@@ -215,8 +214,7 @@ async def auto_close_bugs(auth_token, bug_list, dry_run=False):
 
 async def auto_ni_bugs(bug_list, dry_run=False):
     for bug_id in bug_list:
-        message = f"This message is auto-generated.\n\n"
-        message += f"Would you please verify if the issue is resolved by the ETP exceptions? You can verify by testing in private browsing mode or in [ETP-strict with exceptions enabled](https://support.mozilla.org/en-US/kb/manage-enhanced-tracking-protection-exceptions). Please set bug status to VERIFIED or REOPENED depending on whether this problem is still reproducible. Really appreciate your help.\n"
+        message = "Would you please verify if the issue is resolved by the ETP exceptions? You can verify by testing in private browsing mode or in [ETP-strict with exceptions enabled](https://support.mozilla.org/en-US/kb/manage-enhanced-tracking-protection-exceptions). Please set bug status to VERIFIED or REOPENED depending on whether this problem is still reproducible. Really appreciate your help.\n"
 
         if dry_run:
             print(f"---- NeedInfo Bug {bug_id} to {fetch_bug_creator(bug_id)} ----")
