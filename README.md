@@ -64,8 +64,8 @@ This command:
 2. Filters bugs that need exceptions (based on whiteboard tags)
 3. Creates appropriate exception entries for Firefox versions before and after 142.0a1
 4. Deploys exceptions to RemoteSettings
-5. Closes bugs that have exceptions deployed (production only)
-6. Sends NeedInfo requests to bug creators
+5. Closes and clears the `[privacy-team:diagnosed]` whiteboard tag for bugs that have exceptions deployed (production only)
+6. Sends NeedInfo requests to bug creators for verifying the fix (production only)
 
 ## Workflow
 
@@ -76,6 +76,12 @@ This command:
 3. **User Story**: Include `trackers-blocked:` and `classifier-features:` in the user story
 4. **Automated Deployment**: Run `uce-manager auto` to automatically create and deploy exceptions
 5. **Verification**: The tool automatically closes bugs and requests verification from bug reporters
+
+### Workflow for reopened bugs
+1. **Modify Exception**: Modify `trackers-blocked:` and `classifier-features:` in the user story to fix the exception
+2. **Add the tag again**: Add the `[privacy-team:diagnosed]` whiteboard tag again
+3. **Automated Deployment**: The automation script will pick up reopened bugs with the tag to redeploy the exception
+4. **Verification**: The tool automatically closes bugs and requests verification from bug reporters
 
 ### Example Bugzilla User Story Format
 
