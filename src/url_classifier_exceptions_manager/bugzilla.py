@@ -29,7 +29,23 @@ def fetch_bug_creator(bugId):
     else:
         return None
 
-def close_bug(bugId, resolution, message):
+def fetch_bug(bugId, include_fields=None):
+    bugsy = Bugsy()
+
+    params = {}
+    if include_fields:
+        if isinstance(include_fields, (list, tuple)):
+            params["include_fields"] = ",".join(include_fields)
+        else:
+            params["include_fields"] = include_fields
+
+    try:
+        return bugsy.request(f"bug/{bugId}", params=params or None)
+    except Exception as e:
+        print(f"Error fetching bug {bugId}: {e}", file=sys.stderr)
+        return None
+
+def close_bug(bugId, resolution, message, whiteboard=None):
     api_key = os.getenv("BZ_API_KEY")
     bugsy = Bugsy(api_key=api_key)
 
@@ -38,6 +54,10 @@ def close_bug(bugId, resolution, message):
         "resolution": resolution,
         "comment": {"body": message}
     }
+
+    # Update the whiteboard tag if provided.
+    if whiteboard:
+        json_data["whiteboard"] = whiteboard
 
     try:
         bugsy.request(
@@ -71,4 +91,3 @@ def needInfo(bugId, message, requestee):
         print(f"NeedInfo {requestee} for Bug {bugId} successfully")
     except Exception as e:
         print(f"Error needInfo {requestee} for bug {bugId}: {e}", file=sys.stderr)
-

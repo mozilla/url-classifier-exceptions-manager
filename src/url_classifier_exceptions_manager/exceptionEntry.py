@@ -69,3 +69,15 @@ class ExceptionEntry():
             if feature.endswith("-protection"):
                 return True
         return False
+
+    def entry_signature(self):
+        """Create an order-independent signature for comparing ExceptionEntry objects."""
+        sig = {}
+        for key, value in self.obj.items():
+            if key == "id":
+                continue
+            if key in ("bugIds", "classifierFeatures", "filterContentBlockingCategories"):
+                sig[key] = tuple(sorted(str(v) for v in value))
+            else:
+                sig[key] = value
+        return tuple(sorted(sig.items()))

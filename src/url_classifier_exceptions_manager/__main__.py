@@ -11,12 +11,13 @@ import asyncio
 import argparse
 import json
 
-from .bugzilla import fetch_bug_data, needInfo, close_bug
+from .bugzilla import fetch_bug_data, needInfo, close_bug, fetch_bug
 from .auto import auto_deploy_exceptions
 from .remoteSettings import (
     list_exceptions,
     add_exceptions,
     remove_exceptions,
+    request_review_exceptions,
     print_exception,
 )
 
@@ -182,6 +183,17 @@ async def execute():
         help="The message to close the bug"
     )
 
+    # Bugzilla fetch bug info command
+    fetch_parser = subparsers.add_parser('bz-fetch', help='Fetch bug info from Bugzilla')
+    fetch_parser.add_argument(
+        "--bug-id",
+        help="The Bugzilla bug ID to fetch"
+    )
+    fetch_parser.add_argument(
+        "--include-fields",
+        help="The fields to include in the bug info"
+    )
+
     # Auto command
     auto_parser = subparsers.add_parser('auto', help='Automatically generate exceptions from Bugzilla')
     auto_parser.add_argument(
@@ -239,7 +251,9 @@ async def execute():
         auth_token = args.auth
         with open(args.json_file, 'r') as f:
             new_exceptions = json.load(f)
-        await add_exceptions(server_location, auth_token, new_exceptions, args.server == "dev", args.force)
+        is_dev = args.server == "dev"
+        await add_exceptions(server_location, auth_token, new_exceptions, is_dev, args.force)
+        await request_review_exceptions(server_location, auth_token, is_dev)
     elif args.command == 'remove':
         if args.server_location:
             server_location = args.server_location
@@ -247,11 +261,14 @@ async def execute():
             server_location = get_server_location_from_args(args)
         auth_token = args.auth
         if args.all:
-            await remove_exceptions(server_location, auth_token, remove_all=True, is_dev=args.server == "dev", force=args.force)
+            await remove_exceptions(server_location, auth_token, remove_all=True, force=args.force)
+            await request_review_exceptions(server_location, auth_token, is_dev=is_dev)
         elif not args.exception_ids:
             remove_parser.error("Either --all or at least one exception_id must be provided")
         else:
-            await remove_exceptions(server_location, auth_token, args.exception_ids, is_dev=args.server == "dev", force=args.force)
+            is_dev = args.server == "dev"
+            await remove_exceptions(server_location, auth_token, args.exception_ids, force=args.force)
+            await request_review_exceptions(server_location, auth_token, is_dev=is_dev)
     elif args.command == 'bz-info':
         bugs = fetch_bug_data(args.product, args.component)
         print(json.dumps(bugs, indent=2, sort_keys=True))
@@ -291,6 +308,15 @@ async def execute():
                 bug_ids = f.read().splitlines()
             for bug_id in bug_ids:
                 needInfo(bug_id, args.message, args.requestee)
+    elif args.command == 'bz-fetch':
+        if not args.bug_id:
+            fetch_parser.error("--bug-id is required")
+        if args.include_fields:
+            fields = args.include_fields.split(",")
+        else:
+            fields = None
+        bug = fetch_bug(args.bug_id, fields)
+        print(json.dumps(bug, indent=2, sort_keys=True))
 
 def main():
     asyncio.run(execute())

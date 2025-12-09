@@ -2,8 +2,20 @@ import json
 
 from urllib.parse import urlparse
 
-from .bugzilla import fetch_bug_data, close_bug, needInfo, fetch_bug_creator
-from .remoteSettings import list_exceptions, add_exceptions, get_deployed_records
+from .bugzilla import (
+    fetch_bug_data,
+    close_bug,
+    needInfo,
+    fetch_bug_creator,
+    fetch_bug
+)
+from .remoteSettings import (
+    list_exceptions,
+    add_exceptions,
+    remove_exceptions,
+    request_review_exceptions,
+    get_deployed_records
+)
 from .exceptionEntry import ExceptionEntry
 
 from .constants import (
@@ -24,11 +36,30 @@ def is_exempted_by_global_exceptions(host, exceptions):
 
     return False
 
-def is_already_in_exception(bug_id, exceptions):
-    for e in exceptions:
-        if str(bug_id) in e.obj["bugIds"]:
-            return True
-    return False
+def is_already_in_exception(entries, exceptions):
+    """
+    Check whether all given entries already exist in the given exceptions.
+
+    entries: list of ExceptionEntry objects to check.
+    exceptions: list of existing ExceptionEntry objects.
+    """
+    existing_signatures = {exc.entry_signature() for exc in exceptions}
+    for entry in entries:
+        if entry.entry_signature() not in existing_signatures:
+            return False
+    return True
+
+def find_entries_by_bug_id(bug_id, exceptions):
+    """
+    Find entries whose bugIds list contains only the given bug ID.
+    """
+    entries = []
+    for exception in exceptions:
+        bug_ids = exception.obj.get("bugIds", [])
+        if len(bug_ids) == 1 and str(bug_id) == str(bug_ids[0]):
+            entries.append(exception)
+    return entries
+
 
 async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dry_run=False, force=False):
 
@@ -63,17 +94,6 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
 
         # Skip if the bug is not diagnosed by the privacy team
         if "[privacy-team:diagnosed]" not in whiteboard:
-            continue
-
-        # Skip if the bug has the status "REOPENED"
-        if entry["status"] == "REOPENED":
-            continue
-
-        # Skip if the entries are already in the RemoteSettings server. Also
-        # record bugs that have exceptions deployed.
-        if is_already_in_exception(bug_id, current_exceptions):
-            if is_prod_server and is_already_in_exception(bug_id, deployed_exceptions):
-                bugs_have_exception.append(bug_id)
             continue
 
         # Skip if the category hasn't been set.
@@ -120,7 +140,7 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
         if not domains_to_fix:
             continue
 
-        bugs_need_exception.append(bug_id)
+        exceptions_to_add = []
         for domain in domains_to_fix:
             entryAfter142 = ExceptionEntry()
             entryAfter142.fromArguments(
@@ -131,7 +151,7 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
                 topLevelUrlPattern=url,
                 filter_expression='env.version|versionCompare("142.0a1") >= 0'
             )
-            new_exceptions.append(entryAfter142)
+            exceptions_to_add.append(entryAfter142)
             entryBefore142 = ExceptionEntry()
             entryBefore142.fromArguments(
                 bugIds=[str(bug_id)],
@@ -143,7 +163,29 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
                 filterContentBlockingCategories=["standard"],
                 filter_expression='env.version|versionCompare("142.0a1") < 0'
             )
-            new_exceptions.append(entryBefore142)
+            exceptions_to_add.append(entryBefore142)
+
+        # Skip if the entries are already in the RemoteSettings server. Also
+        # record bugs that have exceptions deployed.
+        if is_already_in_exception(exceptions_to_add, current_exceptions):
+            if is_prod_server and is_already_in_exception(exceptions_to_add, deployed_exceptions):
+                bugs_have_exception.append(bug_id)
+            continue
+
+        # The bug is reopened with the [privacy-team:diagnosed] tag. So, we need
+        # to remove the exceptions before adding new ones.
+        if entry["status"] == "REOPENED":
+            entries = find_entries_by_bug_id(bug_id, current_exceptions)
+            if entries:
+                entries_ids = [entry.obj["id"] for entry in entries]
+                if dry_run is False:
+                    await remove_exceptions(server_location, auth_token, entries_ids, False, force=force)
+                else:
+                    print(f"Would remove exceptions for Bug {bug_id}: {entries_ids}")
+
+        # Record bugs that need exceptions deployed.
+        bugs_need_exception.append(bug_id)
+        new_exceptions.extend(exceptions_to_add)
 
     new_exceptions_objects = [exc.toObject() for exc in new_exceptions]
 
@@ -155,9 +197,11 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
 
     if dry_run is False:
         print("Adding exceptions to the RemoteSettings server...")
+        is_dev = server_location == "dev"
         await add_exceptions(
             server_location, auth_token, new_exceptions_objects,
-            is_dev=server_location == "dev", force=force)
+            is_dev=is_dev, force=force)
+        await request_review_exceptions(server_location, auth_token, is_dev=is_dev)
 
     # If the server is not prod, we are done here.
     if is_prod_server is False:
@@ -166,13 +210,13 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
     print("Closing bugs that have exceptions deployed...")
     print(bugs_have_exception)
     # Start closing bugs that have exceptions deployed.
-    await auto_close_bugs(auth_token, bugs_have_exception, dry_run)
+    await auto_close_bugs(bugs_have_exception, dry_run)
 
     print("Needinfo bugs that have exceptions deployed...")
     # Start needinfo bugs that have exceptions deployed.
     await auto_ni_bugs(bugs_have_exception, dry_run)
 
-async def auto_close_bugs(auth_token, bug_list, dry_run=False):
+async def auto_close_bugs(bug_list, dry_run=False):
     # First, fetch the RemoteSettings records. We need them to check if the
     # Record for the bug is already in the RemoteSettings server.
     # We only check against the prod server for closing bugs.
@@ -205,12 +249,19 @@ async def auto_close_bugs(auth_token, bug_list, dry_run=False):
             message += f"{entry.toJSON()}\n"
         message += f"```\n"
 
+        bug_data = fetch_bug(bug_id, "whiteboard")
+        whiteboard = bug_data["bugs"][0]["whiteboard"]
+
+        # Strip the [privacy-team:diagnosed] tag from the whiteboard.
+        whiteboard = whiteboard.replace("[privacy-team:diagnosed]", "")
+        whiteboard = whiteboard.strip()
+
         if dry_run:
             print(f"---- Closing Bug {bug_id} ----")
             print(message)
             print(f"------------------------------")
         else:
-            close_bug(bug_id, "FIXED", message)
+            close_bug(bug_id, "FIXED", message, whiteboard)
 
 async def auto_ni_bugs(bug_list, dry_run=False):
     for bug_id in bug_list:
