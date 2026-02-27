@@ -40,7 +40,7 @@ def print_exception(exception):
 def parse_rs_record(record):
     """
     Parse a RemoteSettings record into a standardized format.
-    
+
     Args:
         record: The raw record from RemoteSettings
 
@@ -80,7 +80,7 @@ def parse_rs_record(record):
 async def update_records(async_client, records):
     """
     Update or create records in the RemoteSettings server.
-    
+
     Args:
         async_client: The AsyncClient instance for the server
         records: List of records to update or create
@@ -210,7 +210,7 @@ async def add_exceptions(server_location, auth_token, new_exceptions, is_dev, fo
                 exception["urlPattern"] == remote_exception["urlPattern"] and
                 set(exception["bugIds"]) == set(remote_exception["bugIds"]) and
                 set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"]) and
-                set(exception["filterContentBlockingCategories"]) == set(remote_exception["filterContentBlockingCategories"])
+                set(exception.get("filterContentBlockingCategories", [])) == set(remote_exception.get("filterContentBlockingCategories", []))
             ):
                 matching_remote = remote_exception
                 break
@@ -305,7 +305,7 @@ async def request_review_exceptions(server_location, auth_token, is_dev=False):
 async def get_deployed_records(server):
     """
     Download and return production records from the PROD_RECORDS_LOCATION.
-    
+
     Returns:
         A list of production exception records
     """
