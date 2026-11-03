@@ -1,5 +1,5 @@
 import pytest
-from url_classifier_exceptions_manager.__main__ import (
+from url_classifier_exceptions_manager.remoteSettings import (
     parse_rs_record,
 )
 
