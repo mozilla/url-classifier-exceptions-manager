@@ -243,11 +243,12 @@ async def auto_close_bugs(bug_list, dry_run=False):
         # Construct the message to close the bug.
         message = f"Enhanced Tracking Protection (ETP) exceptions have been deployed to address this issue.\n"
         message += f"You can view all current exceptions for this bug in the ETP exceptions dashboard: https://etp-exceptions.mozilla.org/?bug_id={bug_id}\n\n"
-        message += f"We have deployed the following exceptions:\n"
+        message += f"<details><summary>Deployed exceptions</summary>\n"
         message += f"```json\n"
         for entry in matching_entries:
             message += f"{entry.toJSON()}\n"
         message += f"```\n"
+        message += f"</details>\n"
 
         bug_data = fetch_bug(bug_id, "whiteboard")
         whiteboard = bug_data["bugs"][0]["whiteboard"]
