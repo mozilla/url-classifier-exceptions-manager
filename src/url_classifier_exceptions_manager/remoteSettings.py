@@ -210,7 +210,7 @@ async def add_exceptions(server_location, auth_token, new_exceptions, is_dev, fo
                 exception["urlPattern"] == remote_exception["urlPattern"] and
                 set(exception["bugIds"]) == set(remote_exception["bugIds"]) and
                 set(exception["classifierFeatures"]) == set(remote_exception["classifierFeatures"]) and
-                set(exception["filterContentBlockingCategories"]) == set(remote_exception["filterContentBlockingCategories"])
+                set(exception.get("filterContentBlockingCategories", [])) == set(remote_exception.get("filterContentBlockingCategories", []))
             ):
                 matching_remote = remote_exception
                 break

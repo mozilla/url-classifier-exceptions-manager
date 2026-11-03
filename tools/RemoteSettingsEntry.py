@@ -3,7 +3,7 @@ import json
 from urllib.parse import urlparse
 
 class RemoteSettingsEntry():
-    def __init__(self, bug_id, tracker_domain, url=None, pbm_only=True, category="convenience", filterContentBlockingCategories = "", filter_expression=None):
+    def __init__(self, bug_id, tracker_domain, url=None, pbm_only=True, category="convenience", filterContentBlockingCategories = ""):
         self.obj = {}
 
         self.obj["bugIds"] = [str(bug_id)]
@@ -19,9 +19,6 @@ class RemoteSettingsEntry():
 
         self.obj["filterContentBlockingCategories"] = filterContentBlockingCategories
         self.obj["category"] = category
-
-        if filter_expression is not None:
-            self.obj["filter_expression"] = filter_expression
 
 
     def toJSON(self):

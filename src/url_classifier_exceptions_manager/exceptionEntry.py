@@ -61,9 +61,6 @@ class ExceptionEntry():
     def isGlobalException(self):
         return "topLevelUrlPattern" not in self.obj
 
-    def isEntryAfter142(self):
-        return "filter_expression" in self.obj and self.obj["filter_expression"] == 'env.version|versionCompare("142.0a1") >= 0'
-
     def isBlockingEntry(self):
         for feature in self.obj["classifierFeatures"]:
             if feature.endswith("-protection"):
