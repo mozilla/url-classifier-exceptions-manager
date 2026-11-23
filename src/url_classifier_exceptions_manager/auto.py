@@ -142,28 +142,15 @@ async def auto_deploy_exceptions(server_location, auth_token, is_prod_server, dr
 
         exceptions_to_add = []
         for domain in domains_to_fix:
-            entryAfter142 = ExceptionEntry()
-            entryAfter142.fromArguments(
+            exception_entry = ExceptionEntry()
+            exception_entry.fromArguments(
                 bugIds=[str(bug_id)],
                 urlPattern=domain,
                 classifierFeatures=classifierFeatures,
                 category=category,
                 topLevelUrlPattern=url,
-                filter_expression='env.version|versionCompare("142.0a1") >= 0'
             )
-            exceptions_to_add.append(entryAfter142)
-            entryBefore142 = ExceptionEntry()
-            entryBefore142.fromArguments(
-                bugIds=[str(bug_id)],
-                urlPattern=domain,
-                classifierFeatures=classifierFeatures,
-                category="convenience",
-                topLevelUrlPattern=url,
-                isPrivateBrowsingOnly=True,
-                filterContentBlockingCategories=["standard"],
-                filter_expression='env.version|versionCompare("142.0a1") < 0'
-            )
-            exceptions_to_add.append(entryBefore142)
+            exceptions_to_add.append(exception_entry)
 
         # Skip if the entries are already in the RemoteSettings server. Also
         # record bugs that have exceptions deployed.

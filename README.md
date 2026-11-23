@@ -62,7 +62,7 @@ uce-manager auto --server <dev|stage|prod> --auth <auth-token> [--dry-run]
 This command:
 1. Fetches bugs from Bugzilla with `[privacy-team:diagnosed]` whiteboard tag
 2. Filters bugs that need exceptions (based on whiteboard tags)
-3. Creates appropriate exception entries for Firefox versions before and after 142.0a1
+3. Creates an exception entry for each tracker domain listed in the user story
 4. Deploys exceptions to RemoteSettings
 5. Closes and clears the `[privacy-team:diagnosed]` whiteboard tag for bugs that have exceptions deployed (production only)
 6. Sends NeedInfo requests to bug creators for verifying the fix (production only)

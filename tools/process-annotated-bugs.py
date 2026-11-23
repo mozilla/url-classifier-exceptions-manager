@@ -68,11 +68,7 @@ def main():
                     affected_bugs.append(bug_id)
                     for fix_domain in necessary_fix_domains:
                         remote_settings.append(RemoteSettingsEntry(
-                            bug_id, fix_domain, url, False, category,
-                            "", 'env.version|versionCompare("142.0a1") >= 0').toObject())
-                        remote_settings.append(RemoteSettingsEntry(
-                            bug_id, fix_domain, url, True, "convenience",
-                            "standard", 'env.version|versionCompare("142.0a1") < 0').toObject())
+                            bug_id, fix_domain, url, False, category).toObject())
 
     print(affected_bugs)
     print(json.dumps(remote_settings, indent=2))
